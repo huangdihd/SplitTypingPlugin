@@ -51,69 +51,41 @@ class MyPlugin(BasePlugin):
         pass
 
     def split_text(self, text: str) -> list:
-        result = []
-        temp = ''
+        # 先处理括号内的内容
+        segments = []
+        current = ""
+        in_parentheses = False
         
-        i = 0
-        while i < len(text):
-            char = text[i]
-            
-            # 如果遇到左括号，先保存之前的内容
+        # 需要删除的标点符号（包括冒号）
+        skip_punctuation = ["，", "。", ",", ".", ":", "：", "\n"]
+        # 作为分段标记的标点符号
+        split_punctuation = ["？", "！", "?", "!", "~", "〜"]
+        
+        for i, char in enumerate(text):
             if char == '(':
-                if temp.strip():
-                    result.append(temp.strip())
-                temp = ''
-                # 收集括号内的内容（包括括号）
-                bracket_content = char
-                i += 1
-                while i < len(text) and text[i] != ')':
-                    bracket_content += text[i]
-                    i += 1
-                if i < len(text):  # 添加右括号
-                    bracket_content += text[i]
-                result.append(bracket_content)  # 括号作为独立的一段
-                i += 1
+                in_parentheses = True
+                if current.strip():
+                    segments.append(current.strip())
+                current = char
+            elif char == ')':
+                in_parentheses = False
+                current += char
+                segments.append(current.strip())
+                current = ""
+            elif char in skip_punctuation and not in_parentheses:
                 continue
-            
-            # 如果遇到数字序列
-            if char.isdigit():
-                if temp.strip():
-                    result.append(temp.strip())
-                temp = ''
-                # 收集连续的数字
-                number = char
-                i += 1
-                while i < len(text) and (text[i].isdigit() or text[i] in [',', '，']):
-                    if text[i] not in [',', '，']:  # 跳过逗号
-                        number += text[i]
-                    i += 1
-                result.append(number)
-                continue
-            
-            # 处理感叹号
-            if char in ['！', '!']:
-                if temp.strip():
-                    result.append(temp.strip() + char)
-                temp = ''
-                i += 1
-                continue
-            
-            # 处理其他分隔符
-            if char in ['，', '。', ',', '.']:
-                if temp.strip():
-                    result.append(temp.strip())
-                temp = ''
-                i += 1
-                continue
-            
-            temp += char
-            i += 1
+            else:
+                current += char
+                # 如果不在括号内且遇到分隔符，进行分段
+                if not in_parentheses and char in split_punctuation:
+                    segments.append(current.strip())
+                    current = ""
         
-        # 处理最后剩余的内容
-        if temp.strip():
-            result.append(temp.strip())
+        # 处理最后剩余的文本
+        if current.strip():
+            segments.append(current.strip())
         
-        return [part for part in result if part.strip()]
+        return [seg for seg in segments if seg.strip()]
 
     # 当收到个人消息时触发
     @handler(PersonNormalMessageReceived)
@@ -138,7 +110,7 @@ class MyPlugin(BasePlugin):
     # 当收到群消息时触发
     @handler(GroupNormalMessageReceived)
     async def group_normal_message_received(self, ctx: EventContext):
-        group_id = ctx.event.group_id
+        group_id = ctx.event.launcher_id
         msg = ctx.event.text_message
 
         # 处理开关命令
