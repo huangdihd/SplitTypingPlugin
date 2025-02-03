@@ -2,7 +2,8 @@
 
 一个模拟人类打字习惯的消息分段发送插件。会根据标点符号和特殊格式自动分段，并模拟真实的打字速度发送消息。
 
-![Uploading 2893784b8fb06f64e71885043eeb947c.png…]()
+![2893784b8fb06f64e71885043eeb947c](https://github.com/user-attachments/assets/83436b58-84fb-4468-8e5d-0c34bba961db)
+
 
 
 ## 功能特点
