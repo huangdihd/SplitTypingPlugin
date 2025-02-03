@@ -2,9 +2,15 @@
 
 一个模拟人类打字习惯的消息分段发送插件。会根据标点符号和特殊格式自动分段，并模拟真实的打字速度发送消息。
 
+## 安装方法
+
+配置完成 [LangBot](https://github.com/RockChinQ/LangBot) 主程序后使用管理员账号向机器人发送命令即可安装：
+
+```
+!plugin get https://github.com/sanxianxiaohuntun/SplitTypingPlugin
+```
+
 ![2893784b8fb06f64e71885043eeb947c](https://github.com/user-attachments/assets/83436b58-84fb-4468-8e5d-0c34bba961db)
-
-
 
 ## 功能特点
 
@@ -14,13 +20,7 @@
 - 分段开关：支持群聊/私聊分别开启或关闭分段功能
 - 消息排队：同一对话中的消息会按顺序发送，不会互相打断
 
-## 安装方法
 
-配置完成 [LangBot](https://github.com/RockChinQ/LangBot) 主程序后使用管理员账号向机器人发送命令即可安装：
-
-```
-!plugin get https://github.com/sanxianxiaohuntun/SplitTypingPlugin
-```
 
 ## 使用说明
 
