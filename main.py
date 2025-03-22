@@ -17,6 +17,8 @@ class DelayedResponsePlugin(BasePlugin):
         "delay_per_char": 0.5,
         # 允许分段功能
         "enable_split": True,
+        # 超过该字符数的消息将不会分段 (设为0表示不限制)
+        "max_chars_for_split": 100,
         # 需要保留的标点符号
         "keep_punctuation": ["？", "！", "?", "!", "~", "〜"],
         # 需要删除的标点符号
@@ -62,6 +64,14 @@ class DelayedResponsePlugin(BasePlugin):
         
     # 智能分段文本
     def split_text(self, text: str) -> list:
+        # 获取字符长度限制
+        max_chars = self.config.get("max_chars_for_split", 100)
+        
+        # 如果文本长度超过限制，不进行分段
+        if max_chars > 0 and len(text) > max_chars:
+            self.host.ap.logger.debug(f"文本长度为 {len(text)} 字符，超过限制 {max_chars}，不进行分段")
+            return [text]
+        
         # 如果不启用分段，直接返回原文本
         if not self.config.get("enable_split", True):
             return [text]
@@ -139,6 +149,31 @@ class DelayedResponsePlugin(BasePlugin):
             ctx.prevent_default()
             
             self.host.ap.logger.info("已关闭分段功能")
+        
+        # 设置字符数限制的命令
+        elif message.startswith("/设置分段字符限制"):
+            try:
+                # 尝试提取数字
+                limit = int(message.replace("/设置分段字符限制", "").strip())
+                self.config["max_chars_for_split"] = limit
+                self.save_config()
+                
+                # 回复用户
+                if limit > 0:
+                    response = f"已设置：超过 {limit} 个字符的消息将不会分段"
+                else:
+                    response = "已设置：不限制字符数，所有消息都可能分段"
+                
+                ctx.add_return("reply", [response])
+                ctx.prevent_default()
+                
+                self.host.ap.logger.info(f"已设置分段字符限制为 {limit}")
+                
+            except ValueError:
+                # 如果输入的不是数字
+                response = "请输入正确的数字格式，例如：/设置分段字符限制 100"
+                ctx.add_return("reply", [response])
+                ctx.prevent_default()
     
     # 当AI回复消息时触发
     @handler(NormalMessageResponded)
