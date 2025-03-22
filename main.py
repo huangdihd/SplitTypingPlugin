@@ -1,65 +1,80 @@
-from pkg.plugin.context import register, handler, llm_func, BasePlugin, APIHost, EventContext
-from pkg.plugin.events import *  # 导入事件类
-from pkg.platform.types import Plain  # 导入消息类型
-import re
-import logging  # 添加 logging 模块
-import asyncio
+from pkg.plugin.context import register, handler, BasePlugin, APIHost, EventContext
+from pkg.plugin.events import NormalMessageResponded, PersonNormalMessageReceived, GroupNormalMessageReceived
+from pkg.platform.types.message import MessageChain, Plain
 import yaml
 import os
-from collections import defaultdict
+import asyncio
+import re
+import time
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(asctime)s] [%(levelname)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-logger = logging.getLogger(__name__)
 
 # 注册插件
-@register(
-    name="SplitTypingPlugin",  # 英文名
-    description="模拟人类打字习惯的消息分段发送插件", # 中文描述
-    version="0.1",
-    author="小馄饨"
-)
-class MyPlugin(BasePlugin):
-
+@register(name="SplitTypingPlugin", description="模拟人类打字习惯的消息分段发送插件", version="0.1", author="小馄饨")
+class DelayedResponsePlugin(BasePlugin):
+    # 默认配置
+    default_config = {
+        # 每个字符的延迟时间(秒)
+        "delay_per_char": 0.5,
+        # 允许分段功能
+        "enable_split": True,
+        # 需要保留的标点符号
+        "keep_punctuation": ["？", "！", "?", "!", "~", "〜"],
+        # 需要删除的标点符号
+        "skip_punctuation": ["，", "。", ",", ".", ":", "：", "\n"],
+        # 作为分段标记的标点符号
+        "split_punctuation": ["？", "！", "?", "!", "〜"]
+    }
+    
     # 插件加载时触发
     def __init__(self, host: APIHost):
-        self.split_enabled = {}  # 用字典存储每个用户的分段状态
-        self.typing_locks = defaultdict(asyncio.Lock)  # 每个对话的打字锁
+        super().__init__(host)
+        self.config = self.default_config.copy()
+        self.config_file = os.path.join(os.path.dirname(__file__), "config.yaml")
+        self.load_config()
         
-        # 加载配置文件
-        config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
+    # 加载配置
+    def load_config(self):
+        if os.path.exists(self.config_file):
+            try:
+                with open(self.config_file, "r", encoding="utf-8") as f:
+                    config = yaml.safe_load(f)
+                if config:
+                    self.config.update(config)
+                    self.host.ap.logger.info(f"插件已加载配置：{self.config}")
+            except Exception as e:
+                self.host.ap.logger.error(f"插件加载配置失败：{e}")
+        else:
+            # 创建默认配置文件
+            self.save_config()
+            
+    # 保存配置
+    def save_config(self):
         try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                config = yaml.safe_load(f)
-                settings = config.get('typing_settings', {})
-                self.char_delay = settings.get('char_delay', 0.1)  # 每个字符的延迟
-                self.segment_pause = settings.get('segment_pause', 0.5)  # 段落间停顿
-                self.max_split_length = settings.get('max_split_length', 50)  # 最大分段长度
+            with open(self.config_file, "w", encoding="utf-8") as f:
+                yaml.dump(self.config, f, allow_unicode=True)
+            self.host.ap.logger.info("插件已保存配置")
         except Exception as e:
-            logger.error(f"加载配置文件失败: {e}")
-            # 使用默认值
-            self.char_delay = 0.1
-            self.segment_pause = 0.5
-            self.max_split_length = 50
-
+            self.host.ap.logger.error(f"插件保存配置失败：{e}")
+    
     # 异步初始化
     async def initialize(self):
-        pass
-
+        self.host.ap.logger.info("插件已初始化")
+        
+    # 智能分段文本
     def split_text(self, text: str) -> list:
+        # 如果不启用分段，直接返回原文本
+        if not self.config.get("enable_split", True):
+            return [text]
+            
         # 先处理括号内的内容
         segments = []
         current = ""
         in_parentheses = False
         
-        # 需要删除的标点符号（包括冒号）
-        skip_punctuation = ["，", "。", ",", ".", ":", "：", "\n"]
+        # 需要删除的标点符号
+        skip_punctuation = self.config.get("skip_punctuation", ["，", "。", ",", ".", ":", "：", "\n"])
         # 作为分段标记的标点符号
-        split_punctuation = ["？", "！", "?", "!", "~", "〜"]
+        split_punctuation = self.config.get("split_punctuation", ["？", "！", "?", "!"])
         
         for i, char in enumerate(text):
             if char == '(':
@@ -86,112 +101,84 @@ class MyPlugin(BasePlugin):
             segments.append(current.strip())
         
         return [seg for seg in segments if seg.strip()]
-
-    # 当收到个人消息时触发
+    
+    # 处理私聊消息命令
     @handler(PersonNormalMessageReceived)
-    async def person_normal_message_received(self, ctx: EventContext):
-        sender_id = ctx.event.sender_id
-        msg = ctx.event.text_message
-
-        # 处理开关命令
-        if msg == "/开启分段":
-            self.split_enabled[sender_id] = True
-            logger.info(f"[分段发送] 用户 {sender_id} 开启了分段发送功能")
-            await ctx.send_message("person", sender_id, [Plain("已开启分段发送模式")])
-            ctx.prevent_default()
-            return
-        elif msg == "/关闭分段":
-            self.split_enabled[sender_id] = False
-            logger.info(f"[分段发送] 用户 {sender_id} 关闭了分段发送功能")
-            await ctx.send_message("person", sender_id, [Plain("已关闭分段发送模式")])
-            ctx.prevent_default()
-            return
-
-    # 当收到群消息时触发
+    async def on_person_message_received(self, ctx: EventContext):
+        await self.process_command(ctx)
+    
+    # 处理群聊消息命令
     @handler(GroupNormalMessageReceived)
-    async def group_normal_message_received(self, ctx: EventContext):
-        group_id = ctx.event.launcher_id
-        msg = ctx.event.text_message
-
-        # 处理开关命令
-        if msg == "/开启分段":
-            self.split_enabled[group_id] = True
-            logger.info(f"[分段发送] 群 {group_id} 开启了分段发送功能")
-            await ctx.send_message("group", group_id, [Plain("已开启分段发送模式")])
-            ctx.prevent_default()
-            return
-        elif msg == "/关闭分段":
-            self.split_enabled[group_id] = False
-            logger.info(f"[分段发送] 群 {group_id} 关闭了分段发送功能")
-            await ctx.send_message("group", group_id, [Plain("已关闭分段发送模式")])
-            ctx.prevent_default()
-            return
-
-    async def get_chat_lock(self, chat_type: str, chat_id: str) -> asyncio.Lock:
-        """获取对话的锁"""
-        lock_key = f"{chat_type}_{chat_id}"
-        return self.typing_locks[lock_key]
-
-    async def simulate_typing(self, ctx: EventContext, chat_type: str, chat_id: str, text: str):
-        """模拟打字效果的延时"""
-        # 获取此对话的锁
-        lock = await self.get_chat_lock(chat_type, chat_id)
+    async def on_group_message_received(self, ctx: EventContext):
+        await self.process_command(ctx)
         
-        # 等待获取锁
-        async with lock:
-            # 根据文本长度计算延时
-            typing_delay = len(text) * self.char_delay
-            # 发送完整消息
-            await ctx.send_message(chat_type, chat_id, [Plain(text)])
-            # 等待打字延时
-            await asyncio.sleep(typing_delay)
-
-    # 处理大模型的回复
+    # 处理命令
+    async def process_command(self, ctx: EventContext):
+        # 获取消息文本
+        message = ctx.event.text_message.strip()
+        
+        # 处理开启/关闭分段命令
+        if message == "/开启分段":
+            self.config["enable_split"] = True
+            self.save_config()
+            
+            # 回复用户
+            response = "已开启消息分段发送功能"
+            ctx.add_return("reply", [response])
+            ctx.prevent_default()
+            
+            self.host.ap.logger.info("已开启分段功能")
+            
+        elif message == "/关闭分段":
+            self.config["enable_split"] = False
+            self.save_config()
+            
+            # 回复用户
+            response = "已关闭消息分段发送功能"
+            ctx.add_return("reply", [response])
+            ctx.prevent_default()
+            
+            self.host.ap.logger.info("已关闭分段功能")
+    
+    # 当AI回复消息时触发
     @handler(NormalMessageResponded)
-    async def normal_message_responded(self, ctx: EventContext):
-        chat_type = ctx.event.launcher_type
-        chat_id = ctx.event.launcher_id if chat_type == "group" else ctx.event.sender_id
-        
-        # 检查是否启用分段
-        if not self.split_enabled.get(chat_id, False):
-            return
-
-        # 获取大模型的回复文本
+    async def on_normal_message_responded(self, ctx: EventContext):
+        # 获取回复消息
         response_text = ctx.event.response_text
         
-        # 获取此对话的锁
-        lock = await self.get_chat_lock(chat_type, chat_id)
+        # 如果没有回复消息，不处理
+        if not response_text:
+            return
         
-        # 等待获取锁
-        async with lock:
-            # 如果文本长度超过最大分段长度，直接发送不分段
-            if len(response_text) > self.max_split_length:
-                logger.info(f"[分段发送] 文本长度({len(response_text)})超过最大限制({self.max_split_length})，将不进行分段")
-                # 模拟整体打字延时并发送
-                await self.simulate_typing(ctx, chat_type, chat_id, response_text)
-                return
+        # 记录原始回复
+        self.host.ap.logger.debug(f"DelayedResponse插件拦截到原始回复: {response_text}")
+        
+        # 智能分段
+        segments = self.split_text(response_text)
+        self.host.ap.logger.debug(f"DelayedResponse插件分段结果: {segments}")
+        
+        # 如果没有分段，或者只有一个分段，不进行特殊处理
+        if not segments or len(segments) == 1:
+            return
+        
+        # 阻止默认行为
+        ctx.prevent_default()
+        
+        # 获取每个字符的延迟时间
+        delay_per_char = self.config.get("delay_per_char", 0.5)
+        
+        # 按顺序发送每个分段
+        for segment in segments:
+            # 创建消息链
+            message_chain = MessageChain([Plain(segment)])
             
-            # 分割文本
-            parts = self.split_text(response_text)
+            # 发送消息
+            await ctx.reply(message_chain)
             
-            if parts:
-                logger.info(f"[分段发送] {chat_type} {chat_id} 的消息将被分为 {len(parts)} 段发送")
-                
-                # 阻止默认的回复行为
-                ctx.prevent_default()
-                
-                # 逐段发送消息
-                for i, part in enumerate(parts, 1):
-                    logger.info(f"[分段发送] 正在发送第 {i}/{len(parts)} 段: {part}")
-                    # 模拟打字延时并发送
-                    typing_delay = len(part) * self.char_delay
-                    await ctx.send_message(chat_type, chat_id, [Plain(part)])
-                    await asyncio.sleep(typing_delay)
-                    
-                    # 如果不是最后一段，添加段落间停顿
-                    if i < len(parts):
-                        await asyncio.sleep(self.segment_pause)
-
+            # 根据分段长度计算延迟时间
+            delay_time = len(segment) * delay_per_char
+            await asyncio.sleep(delay_time)
+        
     # 插件卸载时触发
     def __del__(self):
         pass
