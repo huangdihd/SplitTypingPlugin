@@ -198,7 +198,11 @@ class DelayedResponsePlugin(BasePlugin):
         
         # 阻止默认行为
         ctx.prevent_default()
-        
+
+        asyncio.create_task(self.send_messages(ctx, segments))
+
+    # 异步发送多条消息
+    async def send_messages(self, ctx: EventContext, segments):
         # 获取每个字符的延迟时间
         delay_per_char = self.config.get("delay_per_char", 0.5)
         
