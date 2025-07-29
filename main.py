@@ -44,7 +44,7 @@ class DelayedResponsePlugin(BasePlugin):
                 with open(self.config_file, "r", encoding="utf-8") as f:
                     config = yaml.safe_load(f)
                 if config:
-                    self.config.update(config)
+                    self.config = config
                     self.host.ap.logger.info(f"插件已加载配置：{self.config}")
             except Exception as e:
                 self.host.ap.logger.error(f"插件加载配置失败：{e}")
