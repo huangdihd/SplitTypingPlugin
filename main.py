@@ -1,12 +1,13 @@
 import asyncio
 import os
 import re
+from typing import cast
 
 import yaml
 
 from pkg.platform.types.message import MessageChain, Plain
 from pkg.plugin.context import register, handler, BasePlugin, APIHost, EventContext
-from pkg.plugin.events import NormalMessageResponded, PersonNormalMessageReceived, GroupNormalMessageReceived
+from pkg.plugin.events import NormalMessageResponded
 
 
 # 注册插件
@@ -33,9 +34,8 @@ class DelayedResponsePlugin(BasePlugin):
     # 插件加载时触发
     def __init__(self, host: APIHost):
         super().__init__(host)
-        self.config = self.default_config.copy()
         self.config_file = os.path.join(os.path.dirname(__file__), "config.yaml")
-        self.load_config()
+        self.config = self.default_config.copy()
 
     # 加载配置
     def load_config(self):
@@ -63,6 +63,7 @@ class DelayedResponsePlugin(BasePlugin):
 
     # 异步初始化
     async def initialize(self):
+        self.load_config()
         self.host.ap.logger.info("插件已初始化")
 
     # 删除<think>标签内的推理过程
@@ -123,97 +124,12 @@ class DelayedResponsePlugin(BasePlugin):
 
         return [seg for seg in segments if seg.strip()]
 
-    # 处理私聊消息命令
-    @handler(PersonNormalMessageReceived)
-    async def on_person_message_received(self, ctx: EventContext):
-        await self.process_command(ctx)
-
-    # 处理群聊消息命令
-    @handler(GroupNormalMessageReceived)
-    async def on_group_message_received(self, ctx: EventContext):
-        await self.process_command(ctx)
-
-    # 处理命令
-    async def process_command(self, ctx: EventContext):
-        # 获取消息文本
-        message = ctx.event.text_message.strip()
-
-        # 处理开启/关闭分段命令
-        if message == "/开启分段":
-            self.config["enable_split"] = True
-            self.save_config()
-
-            # 回复用户
-            response = "已开启消息分段发送功能"
-            ctx.add_return("reply", [response])
-            ctx.prevent_default()
-
-            self.host.ap.logger.info("已开启分段功能")
-
-        elif message == "/关闭分段":
-            self.config["enable_split"] = False
-            self.save_config()
-
-            # 回复用户
-            response = "已关闭消息分段发送功能"
-            ctx.add_return("reply", [response])
-            ctx.prevent_default()
-
-            self.host.ap.logger.info("已关闭分段功能")
-
-        # 处理隐藏/显示推理过程命令
-        elif message == "/显示推理":
-            self.config["hide_reasoning_content"] = False
-            self.save_config()
-
-            # 回复用户
-            response = "已关闭推理过程隐藏功能"
-            ctx.add_return("reply", [response])
-            ctx.prevent_default()
-
-            self.host.ap.logger.info("已关闭推理过程隐藏功能")
-
-        elif message == "/隐藏推理":
-            self.config["hide_reasoning_content"] = True
-            self.save_config()
-
-            # 回复用户
-            response = "已开启推理过程隐藏功能"
-            ctx.add_return("reply", [response])
-            ctx.prevent_default()
-
-            self.host.ap.logger.info("已开启推理过程隐藏功能")
-
-        # 设置字符数限制的命令
-        elif message.startswith("/设置分段字符限制"):
-            try:
-                # 尝试提取数字
-                limit = int(message.replace("/设置分段字符限制", "").strip())
-                self.config["max_chars_for_split"] = limit
-                self.save_config()
-
-                # 回复用户
-                if limit > 0:
-                    response = f"已设置：超过 {limit} 个字符的消息将不会分段"
-                else:
-                    response = "已设置：不限制字符数，所有消息都可能分段"
-
-                ctx.add_return("reply", [response])
-                ctx.prevent_default()
-
-                self.host.ap.logger.info(f"已设置分段字符限制为 {limit}")
-
-            except ValueError:
-                # 如果输入的不是数字
-                response = "请输入正确的数字格式，例如：/设置分段字符限制 100"
-                ctx.add_return("reply", [response])
-                ctx.prevent_default()
-
     # 当AI回复消息时触发
     @handler(NormalMessageResponded)
     async def on_normal_message_responded(self, ctx: EventContext):
         # 获取回复消息
-        response_text = self.hide_reasoning_content(ctx.event.response_text)
+        event = cast(NormalMessageResponded, ctx.event)
+        response_text = self.hide_reasoning_content(event.response_text)
 
         # 如果没有回复消息，不处理
         if not response_text:
